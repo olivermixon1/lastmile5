@@ -1,21 +1,36 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import List, Optional
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
 
-app.mount("/static", StaticFiles(directory="static"), name="static")
 
-
+# -----------------------------------------------------
+# FastAPI App Setup
+# -----------------------------------------------------
 app = FastAPI(
     title="Last-Mile Logistics API",
     description="Backend API for connecting autonomous trucking companies with local truckers.",
     version="1.0.0"
 )
 
-# -----------------------------
-# Mock Data Models
-# -----------------------------
+# Allow access from anywhere (iOS app, HTML dashboard)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Serve files in /static (HTML, JS, images)
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+
+# -----------------------------------------------------
+# Data Models
+# -----------------------------------------------------
 class Job(BaseModel):
     id: int
     pickup_location: str
@@ -24,12 +39,13 @@ class Job(BaseModel):
     status: str  # available, assigned, completed
     driver_id: Optional[int] = None
 
-    # new optional fields
+    # Optional job details
     weight: Optional[str] = None
     equipment_type: Optional[str] = None
     delivery_window: Optional[str] = None
     contact_phone: Optional[str] = None
     price_offered: Optional[float] = None
+
 
 class JobCreate(BaseModel):
     pickup_location: str
@@ -41,15 +57,16 @@ class JobCreate(BaseModel):
     contact_phone: Optional[str] = None
     price_offered: Optional[float] = None
 
+
 class Driver(BaseModel):
     id: int
     name: str
     current_location: str
 
 
-# -----------------------------
-# Temporary In-Memory Data
-# -----------------------------
+# -----------------------------------------------------
+# In-Memory Data
+# -----------------------------------------------------
 drivers = [
     Driver(id=1, name="John Doe", current_location="Seattle"),
     Driver(id=2, name="Sarah Lee", current_location="Bellevue"),
@@ -60,22 +77,25 @@ jobs = [
     Job(id=2, pickup_location="Port of Seattle Terminal 18", dropoff_location="Redmond Microsoft Campus", load_description="Electronics container", status="available"),
 ]
 
+next_job_id = 3  # auto-increment ID for new jobs
 
-# -----------------------------
-# Routes / Endpoints
-# -----------------------------
+
+# -----------------------------------------------------
+# Routes / API Endpoints
+# -----------------------------------------------------
 
 @app.get("/")
 def home():
     return {"message": "Last-Mile Logistics API is live!"}
 
-# Get all available jobs
+
+# Get all jobs
 @app.get("/jobs", response_model=List[Job])
 def get_jobs():
     return jobs
 
-next_job_id = 3  # make sure this is defined after your initial jobs list
 
+# Create a new job
 @app.post("/jobs", response_model=Job)
 def create_job(job: JobCreate):
     global next_job_id
@@ -105,6 +125,7 @@ def create_job(job: JobCreate):
 def get_drivers():
     return drivers
 
+
 # Assign a driver to a job
 @app.post("/assign/{job_id}/{driver_id}")
 def assign_driver(job_id: int, driver_id: int):
@@ -113,7 +134,9 @@ def assign_driver(job_id: int, driver_id: int):
             job.status = "assigned"
             job.driver_id = driver_id
             return {"message": "Driver assigned", "job": job}
-    return {"error": "Job not found"}
+
+    raise HTTPException(status_code=404, detail="Job not found")
+
 
 # Mark job as completed
 @app.post("/complete/{job_id}")
@@ -122,8 +145,11 @@ def complete_job(job_id: int):
         if job.id == job_id:
             job.status = "completed"
             return {"message": "Job completed", "job": job}
-    return {"error": "Job not found"}
 
+    raise HTTPException(status_code=404, detail="Job not found")
+
+
+# Serve the shipper dashboard HTML form
 @app.get("/shipper")
 def shipper_dashboard():
     return FileResponse("static/shipper_dashboard.html")
